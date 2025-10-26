@@ -117,7 +117,15 @@ class TddCalculatorImpl @Inject constructor(
         val calculationStep = T.mins(5).msecs()
         for (t in startTimeAligned until endTimeAligned step calculationStep) {
 
-            val profile = profileFunction.getProfile(t) ?: if (allowMissingData) continue else return null
+            var profile = profileFunction.getProfile(t);
+
+            if (profile == null) {
+                // use current profile (this will hopefully be fine for calculating TDD)
+                profile = profileFunction.getProfile()
+                if (profile == null) {
+                    return null;
+                }
+            }
             val tbr = iobCobCalculator.getBasalData(profile, t)
             if (tbr.isTempBasalRunning) tbrFound = true
             val absoluteRate = tbr.tempBasalAbsolute

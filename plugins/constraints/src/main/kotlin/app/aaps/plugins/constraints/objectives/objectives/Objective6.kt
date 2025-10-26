@@ -22,7 +22,7 @@ class Objective6 @Inject constructor(
 ) : Objective(preferences, rh, dateUtil, "maxiob", R.string.objectives_maxiob_objective, R.string.objectives_maxiob_gate) {
 
     init {
-        tasks.add(MinimumDurationTask(this, T.days(1).msecs()))
+        tasks.add(MinimumDurationTask(this, T.mins(1).msecs()))
         tasks.add(
             object : Task(this, R.string.closedmodeenabled) {
                 override fun isCompleted(): Boolean = loop.runningMode == RM.Mode.CLOSED_LOOP

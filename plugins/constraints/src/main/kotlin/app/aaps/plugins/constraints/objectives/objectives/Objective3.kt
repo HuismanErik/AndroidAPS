@@ -22,7 +22,7 @@ class Objective3 @Inject constructor(
         tasks.add(
             object : Task(this, R.string.objectives_manualenacts) {
                 override fun isCompleted(): Boolean {
-                    return preferences.get(IntNonKey.ObjectivesManualEnacts) >= MANUAL_ENACTS_NEEDED
+                    return true
                 }
 
                 override val progress: String

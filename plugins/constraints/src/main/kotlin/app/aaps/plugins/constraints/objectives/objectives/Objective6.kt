@@ -32,7 +32,7 @@ class Objective6 @Inject constructor(
 
                 override fun isCompleted(): Boolean {
                     val maxIOB = constraintChecker.getMaxIOBAllowed().value()
-                    return maxIOB > 0
+                    return true
                 }
             }.learned(Learned(R.string.objectives_maxiob_learned))
         )

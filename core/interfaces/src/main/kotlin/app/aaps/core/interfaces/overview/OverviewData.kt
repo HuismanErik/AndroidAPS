@@ -43,6 +43,8 @@ interface OverviewData {
     fun extendedBolusText(): String
     fun extendedBolusDialogText(): String
 
+    fun clearGraphReferences()
+
     /*
      * Graphs
      */

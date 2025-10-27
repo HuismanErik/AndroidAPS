@@ -393,6 +393,7 @@ class OverviewFragment : DaggerFragment(), View.OnClickListener, OnLongClickList
         _binding = null
         secondaryGraphs.clear()
         secondaryGraphsLabel.clear()
+        overviewData.clearGraphReferences()
     }
 
     override fun onClick(v: View) {

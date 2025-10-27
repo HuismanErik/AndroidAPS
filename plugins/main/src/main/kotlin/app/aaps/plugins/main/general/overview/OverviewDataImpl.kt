@@ -64,7 +64,7 @@ class OverviewDataImpl @Inject constructor(
         basalLineGraphSeries = LineGraphSeries<ScaledDataPoint>()
         absoluteBasalGraphSeries = LineGraphSeries<ScaledDataPoint>()
         temporaryTargetSeries = LineGraphSeries<DataPoint>()
-        runningModesSeries = PointsWithLabelGraphSeries< RunningModeDataPoint>()
+        runningModesSeries = PointsWithLabelGraphSeries<RunningModeDataPoint>()
         maxIAValue = 0.0
         activitySeries = FixedLineGraphSeries<ScaledDataPoint>()
         activityPredictionSeries = FixedLineGraphSeries<ScaledDataPoint>()
@@ -181,6 +181,27 @@ class OverviewDataImpl @Inject constructor(
     override fun extendedBolusDialogText(): String =
         persistenceLayer.getExtendedBolusActiveAt(dateUtil.now())?.toStringFull(dateUtil, rh) ?: ""
 
+    override fun clearGraphReferences() {
+        baseBasalGraphSeries = LineGraphSeries<ScaledDataPoint>()
+        tempBasalGraphSeries = LineGraphSeries<ScaledDataPoint>()
+        basalLineGraphSeries = LineGraphSeries<ScaledDataPoint>()
+        absoluteBasalGraphSeries = LineGraphSeries<ScaledDataPoint>()
+        deviationsSeries = BarGraphSeries<DeviationDataPoint>()
+        bgReadingGraphSeries = PointsWithLabelGraphSeries<DataPointWithLabelInterface>()
+        predictionsGraphSeries = PointsWithLabelGraphSeries<DataPointWithLabelInterface>()
+        iobSeries = FixedLineGraphSeries<ScaledDataPoint>()
+        absIobSeries = FixedLineGraphSeries<ScaledDataPoint>()
+        iobPredictions1Series = PointsWithLabelGraphSeries<DataPointWithLabelInterface>()
+        cobSeries = FixedLineGraphSeries<ScaledDataPoint>()
+        cobMinFailOverSeries = PointsWithLabelGraphSeries<DataPointWithLabelInterface>()
+        treatmentsSeries = PointsWithLabelGraphSeries<DataPointWithLabelInterface>()
+        therapyEventSeries = PointsWithLabelGraphSeries<DataPointWithLabelInterface>()
+        activitySeries = FixedLineGraphSeries<ScaledDataPoint>()
+        activityPredictionSeries = FixedLineGraphSeries<ScaledDataPoint>()
+        ratioSeries = LineGraphSeries<ScaledDataPoint>()
+        varSensSeries = LineGraphSeries<ScaledDataPoint>()
+    }
+
     /*
      * Graphs
      */
@@ -198,7 +219,7 @@ class OverviewDataImpl @Inject constructor(
     override var absoluteBasalGraphSeries: SeriesData = LineGraphSeries<ScaledDataPoint>()
 
     override var temporaryTargetSeries: SeriesData = LineGraphSeries<DataPoint>()
-    override var runningModesSeries: SeriesData = PointsWithLabelGraphSeries< RunningModeDataPoint>()
+    override var runningModesSeries: SeriesData = PointsWithLabelGraphSeries<RunningModeDataPoint>()
     override var maxIAValue = 0.0
     override val actScale = Scale()
     override var activitySeries: SeriesData = FixedLineGraphSeries<ScaledDataPoint>()

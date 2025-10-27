@@ -326,7 +326,7 @@ class DanaRSPlugin @Inject constructor(
         var connectionOK = false
         if (detailedBolusInfo.insulin > 0) connectionOK = danaRSService?.bolus(detailedBolusInfo) == true
         val result = pumpEnactResultProvider.get()
-        result.success = connectionOK && abs(detailedBolusInfo.insulin - BolusProgressData.delivered) < pumpDescription.bolusStep
+        result.success = connectionOK && (abs(detailedBolusInfo.insulin - BolusProgressData.delivered) < pumpDescription.bolusStep || danaPump.bolusStopped)
         result.bolusDelivered = BolusProgressData.delivered
         if (!result.success) {
             var error = "" + danaPump.bolusStartErrorCode
@@ -646,7 +646,7 @@ class DanaRSPlugin @Inject constructor(
 
     override val isFakingTempsByExtendedBoluses: Boolean = false
     override fun loadTDDs(): PumpEnactResult = loadHistory(RecordTypes.RECORD_TYPE_DAILY)
-    override fun canHandleDST(): Boolean = false
+    override fun canHandleDST(): Boolean = danaPump.usingUTC
     override fun clearPairing() {
         aapsLogger.debug(LTag.PUMPCOMM, "Pairing keys cleared")
         preferences.remove(DanaStringComposedKey.ParingKey, mDeviceName)

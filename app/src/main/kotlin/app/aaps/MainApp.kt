@@ -9,6 +9,8 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.GlucoseUnit
@@ -61,8 +63,8 @@ import app.aaps.receivers.KeepAliveWorker
 import app.aaps.receivers.TimeDateOrTZChangeReceiver
 import app.aaps.ui.activityMonitor.ActivityMonitor
 import app.aaps.ui.widget.Widget
-import com.google.firebase.FirebaseApp
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 import com.google.firebase.remoteconfig.remoteConfig
 import dagger.android.AndroidInjector
@@ -128,6 +130,17 @@ class MainApp : DaggerApplication(), ComposeUiProvider {
 
         // Do initializations in another thread
         scope.launch { doInit() }
+
+        // Delay KeepAliveWorker scheduling until app lifecycle is fully started
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) {
+                    aapsLogger.debug("MainApp: scheduling KeepAliveWorker after lifecycle START")
+                    KeepAliveWorker.schedule(this@MainApp)
+                    ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
+                }
+            }
+        )
     }
 
     private fun doInit() {
@@ -173,7 +186,7 @@ class MainApp : DaggerApplication(), ComposeUiProvider {
                     ).subscribe()
             }, 10000
         )
-        KeepAliveWorker.schedule(this@MainApp)
+
         localAlertUtils.shortenSnoozeInterval()
         localAlertUtils.preSnoozeAlarms()
 

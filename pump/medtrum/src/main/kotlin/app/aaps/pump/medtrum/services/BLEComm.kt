@@ -52,7 +52,8 @@ class BLEComm @Inject internal constructor(
 
     companion object {
 
-        private const val WRITE_DELAY_MILLIS: Long = 10
+        private const val WRITE_DELAY_MILLIS: Long = 30
+        private const val WRITE_TIMEOUT_MILLIS = 1500L
         private const val SERVICE_UUID = "669A9001-0008-968F-E311-6050405558B3"
         private const val READ_UUID = "669a9120-0008-968f-e311-6050405558b3"
         private const val WRITE_UUID = "669a9101-0008-968f-e311-6050405558b3"
@@ -84,6 +85,7 @@ class BLEComm @Inject internal constructor(
     private var mDeviceSN: Long = 0
     private var mCallback: BLECommCallback? = null
     private var mDeviceAddress: String? = null
+    private var writeTimeoutRunnable: Runnable? = null
 
     fun setCallback(callback: BLECommCallback?) {
         this.mCallback = callback
@@ -227,6 +229,16 @@ class BLEComm @Inject internal constructor(
 
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     private val mGattCallback: BluetoothGattCallback = object : BluetoothGattCallback() {
+
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            aapsLogger.debug(LTag.PUMPBTCOMM, "MTU changed to $mtu status=$status")
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                gatt.discoverServices()
+            } else {
+                aapsLogger.error(LTag.PUMPBTCOMM, "Missing BLUETOOTH_CONNECT permission (discoverServices)")
+            }
+        }
+
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             onConnectionStateChangeSynchronized(gatt, status, newState) // call it synchronized
         }
@@ -269,6 +281,9 @@ class BLEComm @Inject internal constructor(
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
             aapsLogger.debug(LTag.PUMPBTCOMM, "onCharacteristicWrite status = " + status)
+
+            writeTimeoutRunnable?.let { handler.removeCallbacks(it) }
+            writeTimeoutRunnable = null
 
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 // Check if we need to finish our command!
@@ -375,7 +390,7 @@ class BLEComm @Inject internal constructor(
         if (newState == BluetoothProfile.STATE_CONNECTED) {
             isConnected = true
             isConnecting = false
-            mBluetoothGatt?.discoverServices()
+            mBluetoothGatt?.requestMtu(247)
         } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
             if (isConnecting) {
                 val resetDevice = preferences.get(MedtrumBooleanKey.MedtrumScanOnConnectionErrors)
@@ -397,6 +412,10 @@ class BLEComm @Inject internal constructor(
 
     @Synchronized
     fun sendMessage(message: ByteArray) {
+        if (uartWrite == null || !isConnected) {
+            mCallback?.onSendMessageError("BLE not ready", true)
+            return
+        }
         aapsLogger.debug(LTag.PUMPBTCOMM, "sendMessage message = " + message.contentToString())
         if (mWritePackets?.allPacketsConsumed() == false) {
             aapsLogger.error(LTag.PUMPBTCOMM, "sendMessage not all packets consumed!! unable to sent message!")
@@ -427,7 +446,7 @@ class BLEComm @Inject internal constructor(
     @Synchronized
     private fun writeCharacteristic(characteristic: BluetoothGattCharacteristic, data: ByteArray?) {
         handler.postDelayed({
-                                if (mBluetoothAdapter == null || mBluetoothGatt == null) {
+                                if (mBluetoothAdapter == null || mBluetoothGatt == null || uartWrite == null) {
                                     handleNotInitialized()
                                 } else {
                                     characteristic.value = data
@@ -436,6 +455,14 @@ class BLEComm @Inject internal constructor(
                                     val success = mBluetoothGatt?.writeCharacteristic(characteristic)
                                     if (success != true) {
                                         mCallback?.onSendMessageError("Failed to write characteristic", true)
+                                    } else {
+                                        writeTimeoutRunnable?.let { handler.removeCallbacks(it) }
+                                        writeTimeoutRunnable = Runnable {
+                                            aapsLogger.error(LTag.PUMPBTCOMM, "Write timeout")
+                                            mCallback?.onSendMessageError("Write timeout", true)
+                                            disconnect("write timeout")
+                                        }
+                                        handler.postDelayed(writeTimeoutRunnable!!, WRITE_TIMEOUT_MILLIS)
                                     }
                                 }
                             }, WRITE_DELAY_MILLIS)

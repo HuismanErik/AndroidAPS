@@ -334,29 +334,6 @@ class BLEComm @Inject internal constructor(
         }
     }
 
-    @Suppress("DEPRECATION")
-    @SuppressLint("MissingPermission")
-    @Synchronized
-    private fun setCharacteristicNotification(characteristic: BluetoothGattCharacteristic?, enabled: Boolean) {
-        aapsLogger.debug(LTag.PUMPBTCOMM, "setCharacteristicNotification")
-        if (mBluetoothAdapter == null || mBluetoothGatt == null) {
-            handleNotInitialized()
-            return
-        }
-        mBluetoothGatt?.setCharacteristicNotification(characteristic, enabled)
-        characteristic?.getDescriptor(UUID.fromString(CONFIG_UUID))?.let {
-            if (characteristic.properties and NEEDS_ENABLE_NOTIFICATION > 0) {
-                it.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                mBluetoothGatt?.writeDescriptor(it)
-            } else if (characteristic.properties and NEEDS_ENABLE_INDICATION > 0) {
-                it.value = BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-                mBluetoothGatt?.writeDescriptor(it)
-            } else {
-                // Do nothing
-            }
-        }
-    }
-
     @Synchronized
     fun sendMessage(message: ByteArray) {
         if (!isConnected || uartWrite == null || writeInProgress) {

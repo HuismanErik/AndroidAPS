@@ -53,7 +53,7 @@ class BLEComm @Inject internal constructor(
     companion object {
 
         private const val WRITE_DELAY_MILLIS: Long = 30
-        private const val WRITE_TIMEOUT_MILLIS = 1500L
+        private const val WRITE_TIMEOUT_MILLIS = 2000L
         private const val SERVICE_UUID = "669A9001-0008-968F-E311-6050405558B3"
         private const val READ_UUID = "669a9120-0008-968f-e311-6050405558b3"
         private const val WRITE_UUID = "669a9101-0008-968f-e311-6050405558b3"
@@ -229,16 +229,6 @@ class BLEComm @Inject internal constructor(
 
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     private val mGattCallback: BluetoothGattCallback = object : BluetoothGattCallback() {
-
-        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "MTU changed to $mtu status=$status")
-            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                gatt.discoverServices()
-            } else {
-                aapsLogger.error(LTag.PUMPBTCOMM, "Missing BLUETOOTH_CONNECT permission (discoverServices)")
-            }
-        }
-
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             onConnectionStateChangeSynchronized(gatt, status, newState) // call it synchronized
         }
@@ -390,7 +380,7 @@ class BLEComm @Inject internal constructor(
         if (newState == BluetoothProfile.STATE_CONNECTED) {
             isConnected = true
             isConnecting = false
-            mBluetoothGatt?.requestMtu(247)
+            mBluetoothGatt?.discoverServices()
         } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
             if (isConnecting) {
                 val resetDevice = preferences.get(MedtrumBooleanKey.MedtrumScanOnConnectionErrors)

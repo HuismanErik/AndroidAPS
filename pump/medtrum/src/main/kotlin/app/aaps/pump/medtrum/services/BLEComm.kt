@@ -235,8 +235,44 @@ class BLEComm @Inject internal constructor(
 
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     private val mGattCallback: BluetoothGattCallback = object : BluetoothGattCallback() {
+        /** Connect flow: 3. When we are connected discover services*/
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            onConnectionStateChangeSynchronized(gatt, status, newState) // call it synchronized
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                ToastUtils.errorToast(context, context.getString(app.aaps.core.ui.R.string.need_connect_permission))
+                aapsLogger.error(LTag.PUMPBTCOMM, "missing permissions")
+                return
+            }
+
+            synchronized(bleStateLock) {
+                aapsLogger.debug(LTag.PUMPBTCOMM, "onConnectionStateChange newState: $newState status: $status")
+
+                if (status == 133) {
+                    handleGattFailure("status 133")
+                    return
+                }
+
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    isConnecting = false
+                    aapsLogger.debug(LTag.PUMPBTCOMM, "STATE_CONNECTED - starting discoverServices")
+                    mBluetoothGatt?.discoverServices()  // Laat dit doorgaan - GEEN close hier!
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    if (isConnecting) {
+                        val resetDevice = preferences.get(MedtrumBooleanKey.MedtrumScanOnConnectionErrors)
+                        if (resetDevice) {
+                            // When we are disconnected during connecting, we reset the device address to force a new scan
+                            aapsLogger.warn(LTag.PUMPBTCOMM, "Disconnected while connecting! Reset device address")
+                            mDeviceAddress = null
+                        }
+                        // Wait a bit before retrying
+                        SystemClock.sleep(2000)
+                    }
+                    isConnecting = false
+                    isConnected = false
+                    mCallback?.onBLEDisconnected()
+                    aapsLogger.debug(LTag.PUMPBTCOMM, "STATE_DISCONNECTED - cleaning up")
+                    close()  // Close alleen bij disconnect - dit is correct
+                }
+            }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
@@ -283,7 +319,7 @@ class BLEComm @Inject internal constructor(
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "onCharacteristicWrite status = " + status)
+            aapsLogger.debug(LTag.PUMPBTCOMM, "onCharacteristicWrite status = $status")
 
             writeTimeoutRunnable?.let { handler.removeCallbacks(it) }
             writeTimeoutRunnable = null
@@ -398,46 +434,6 @@ class BLEComm @Inject internal constructor(
         }
     }
 
-    /** Connect flow: 3. When we are connected discover services*/
-    private fun onConnectionStateChangeSynchronized(gatt: BluetoothGatt, status: Int, newState: Int) {
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            ToastUtils.errorToast(context, context.getString(app.aaps.core.ui.R.string.need_connect_permission))
-            aapsLogger.error(LTag.PUMPBTCOMM, "missing permissions")
-            return
-        }
-
-        synchronized(bleStateLock) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "onConnectionStateChange newState: $newState status: $status")
-
-            if (status == 133) {
-                handleGattFailure("status 133")
-                return
-            }
-
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-                isConnecting = false
-                aapsLogger.debug(LTag.PUMPBTCOMM, "STATE_CONNECTED - starting discoverServices")
-                mBluetoothGatt?.discoverServices()  // Laat dit doorgaan - GEEN close hier!
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                if (isConnecting) {
-                    val resetDevice = preferences.get(MedtrumBooleanKey.MedtrumScanOnConnectionErrors)
-                    if (resetDevice) {
-                        // When we are disconnected during connecting, we reset the device address to force a new scan
-                        aapsLogger.warn(LTag.PUMPBTCOMM, "Disconnected while connecting! Reset device address")
-                        mDeviceAddress = null
-                    }
-                    // Wait a bit before retrying
-                    SystemClock.sleep(2000)
-                }
-                isConnecting = false
-                isConnected = false
-                mCallback?.onBLEDisconnected()
-                aapsLogger.debug(LTag.PUMPBTCOMM, "STATE_DISCONNECTED - cleaning up")
-                close()  // Close alleen bij disconnect - dit is correct
-            }
-        }
-    }
-
     private fun handleGattFailure(reason: String) {
         synchronized(bleStateLock) {
             aapsLogger.error(LTag.PUMPBTCOMM, "GATT failure: $reason")
@@ -460,6 +456,7 @@ class BLEComm @Inject internal constructor(
         }
         close()
     }
+
     fun sendMessage(message: ByteArray) {
         synchronized(bleStateLock) {
             if (uartWrite == null || !isConnected) {
@@ -520,7 +517,6 @@ class BLEComm @Inject internal constructor(
                             }, WRITE_DELAY_MILLIS)
     }
 
-
     private val uartWriteBTGattChar: BluetoothGattCharacteristic
         get() = uartWrite
             ?: BluetoothGattCharacteristic(UUID.fromString(WRITE_UUID), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT, 0).also { uartWrite = it }
@@ -528,14 +524,16 @@ class BLEComm @Inject internal constructor(
     @SuppressLint("MissingPermission")
     fun close() {
         aapsLogger.debug(LTag.PUMPBTCOMM, "BluetoothAdapter close")
+        val gattToClose: BluetoothGatt?
         synchronized(bleStateLock) {
-            if (mBluetoothGatt != null) {
-                mBluetoothGatt?.close()
-                mBluetoothGatt = null
-                aapsLogger.debug(LTag.PUMPBTCOMM, "GATT closed successfully")
-            } else {
-                aapsLogger.debug(LTag.PUMPBTCOMM, "GATT already null - nothing to close")
-            }
+            gattToClose = mBluetoothGatt
+            mBluetoothGatt = null
+        }
+        if (gattToClose != null) {
+            aapsLogger.debug(LTag.PUMPBTCOMM, "Closing GATT")
+            gattToClose.close()
+        } else {
+            aapsLogger.debug(LTag.PUMPBTCOMM, "GATT already null")
         }
         SystemClock.sleep(100)
     }

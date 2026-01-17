@@ -66,6 +66,9 @@ class BLEComm @Inject internal constructor(
         private const val MANUFACTURER_ID = 18305
     }
 
+    private val reconnectCooldownMillis: Long = 3000
+    private val maxConnectAttempts: Int = 3
+    private var connectAttempts: Int = 0
     private var reconnectBlockedUntil: Long = 0
     private val handler =
         Handler(HandlerThread(this::class.simpleName + "Handler").also { it.start() }.looper)
@@ -195,12 +198,12 @@ class BLEComm @Inject internal constructor(
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Connected, disconnecting - will close after callback")
                 mBluetoothGatt?.disconnect()
                 // Delay close tot na disconnect-callback
-                handler.postDelayed({ close() }, 500)  // 500ms delay voor callback
+                handler.postDelayed({ close() }, 500)
             } else {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Not connected, closing gatt")
                 isConnected = false
                 mCallback?.onBLEDisconnected()
-                close()  // Direct close als niet connected
+                close()
             }
         }
     }
@@ -242,7 +245,7 @@ class BLEComm @Inject internal constructor(
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Services discovered successfully - finding characteristics")
                 findCharacteristic()
                 synchronized(bleStateLock) {
-                    isConnected = true  // Zet hier voor fallback als descriptors falen
+                    isConnected = true
                 }
             } else {
                 aapsLogger.error(LTag.PUMPBTCOMM, "Service discovery failed with status: $status")
@@ -359,7 +362,10 @@ class BLEComm @Inject internal constructor(
             }
             if (notificationEnabled) {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Notifications enabled! Calling onBLEConnected")
-                mCallback?.onBLEConnected()
+                synchronized(bleStateLock) {
+                    connectAttempts = 0
+                    mCallback?.onBLEConnected()
+                }
             } else {
                 aapsLogger.warn(LTag.PUMPBTCOMM, "Notifications NOT fully enabled")
             }
@@ -434,14 +440,26 @@ class BLEComm @Inject internal constructor(
 
     private fun handleGattFailure(reason: String) {
         synchronized(bleStateLock) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "GATT failure: $reason")
+            aapsLogger.error(LTag.PUMPBTCOMM, "GATT failure: $reason")
             isConnecting = false
             isConnected = false
-            reconnectBlockedUntil = System.currentTimeMillis() + 3000  // Korter voor testen
+            connectAttempts++
+
+            if (connectAttempts < maxConnectAttempts && reason.contains("133")) {
+                reconnectBlockedUntil = System.currentTimeMillis() + reconnectCooldownMillis
+                aapsLogger.debug(LTag.PUMPBTCOMM, "Retrying connect attempt $connectAttempts/$maxConnectAttempts after cooldown")
+                handler.postDelayed({
+                                        connect("Retry after GATT 133", mDeviceSN)
+                                    }, reconnectCooldownMillis)
+            } else {
+                reconnectBlockedUntil = System.currentTimeMillis() + 10000
+                aapsLogger.error(LTag.PUMPBTCOMM, "Max retries reached for GATT failure: $reason")
+                connectAttempts = 0
+                mCallback?.onBLEDisconnected()
+            }
         }
         close()
     }
-
     fun sendMessage(message: ByteArray) {
         synchronized(bleStateLock) {
             if (uartWrite == null || !isConnected) {
@@ -519,7 +537,7 @@ class BLEComm @Inject internal constructor(
                 aapsLogger.debug(LTag.PUMPBTCOMM, "GATT already null - nothing to close")
             }
         }
-        SystemClock.sleep(100)  // Buiten lock
+        SystemClock.sleep(100)
     }
 
     /** Connect flow: 4. When services are discovered find characteristics and set notifications*/

@@ -211,7 +211,7 @@ class BLEComm @Inject internal constructor(
     /** Scan callback  */
     private val mScanCallback: ScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "OnScanResult!" + result)
+            aapsLogger.debug(LTag.PUMPBTCOMM, "OnScanResult! $result")
             super.onScanResult(callbackType, result)
 
             val manufacturerData =
@@ -235,6 +235,7 @@ class BLEComm @Inject internal constructor(
 
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     private val mGattCallback: BluetoothGattCallback = object : BluetoothGattCallback() {
+
         /** Connect flow: 3. When we are connected discover services*/
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
@@ -254,7 +255,7 @@ class BLEComm @Inject internal constructor(
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     isConnecting = false
                     aapsLogger.debug(LTag.PUMPBTCOMM, "STATE_CONNECTED - starting discoverServices")
-                    mBluetoothGatt?.discoverServices()  // Laat dit doorgaan - GEEN close hier!
+                    mBluetoothGatt?.discoverServices()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     if (isConnecting) {
                         val resetDevice = preferences.get(MedtrumBooleanKey.MedtrumScanOnConnectionErrors)
@@ -270,7 +271,7 @@ class BLEComm @Inject internal constructor(
                     isConnected = false
                     mCallback?.onBLEDisconnected()
                     aapsLogger.debug(LTag.PUMPBTCOMM, "STATE_DISCONNECTED - cleaning up")
-                    close()  // Close alleen bij disconnect - dit is correct
+                    close()
                 }
             }
         }

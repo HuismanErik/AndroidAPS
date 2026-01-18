@@ -52,8 +52,8 @@ class BLEComm @Inject internal constructor(
 
     companion object {
 
-        private const val WRITE_DELAY_MILLIS: Long = 30
-        private const val WRITE_TIMEOUT_MILLIS = 2000L
+        private const val WRITE_DELAY_MILLIS: Long = 10
+        private const val WRITE_TIMEOUT_MILLIS = 3000L
         private const val SERVICE_UUID = "669A9001-0008-968F-E311-6050405558B3"
         private const val READ_UUID = "669a9120-0008-968f-e311-6050405558b3"
         private const val WRITE_UUID = "669a9101-0008-968f-e311-6050405558b3"
@@ -110,6 +110,7 @@ class BLEComm @Inject internal constructor(
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
+        // Find our Medtrum Device!
         val filters = listOf(
             ScanFilter.Builder().setDeviceName("MT").build()
         )
@@ -158,6 +159,7 @@ class BLEComm @Inject internal constructor(
             mDeviceSN = deviceSN
             startScan()
         }
+
         return true
     }
 
@@ -206,6 +208,23 @@ class BLEComm @Inject internal constructor(
                 close()
             }
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun close() {
+        aapsLogger.debug(LTag.PUMPBTCOMM, "BluetoothAdapter close")
+        val gattToClose: BluetoothGatt?
+        synchronized(bleStateLock) {
+            gattToClose = mBluetoothGatt
+            mBluetoothGatt = null
+        }
+        if (gattToClose != null) {
+            aapsLogger.debug(LTag.PUMPBTCOMM, "Closing GATT")
+            gattToClose.close()
+        } else {
+            aapsLogger.debug(LTag.PUMPBTCOMM, "GATT already null")
+        }
+        SystemClock.sleep(100)
     }
 
     /** Scan callback  */
@@ -394,20 +413,18 @@ class BLEComm @Inject internal constructor(
                     characteristics[j].getDescriptor(UUID.fromString(CONFIG_UUID))
                 if (configDescriptor.value == null || configDescriptor.value.toInt() <= 0) {
                     notificationEnabled = false
-                    aapsLogger.warn(LTag.PUMPBTCOMM, "Descriptor not enabled for char: ${characteristics[j].uuid}")
                 }
             }
             if (notificationEnabled) {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Notifications enabled! Calling onBLEConnected")
                 synchronized(bleStateLock) {
                     connectAttempts = 0
+                    /** Connect flow: 6. Connected */
                     mCallback?.onBLEConnected()
                 }
             } else {
                 aapsLogger.warn(LTag.PUMPBTCOMM, "Notifications NOT fully enabled")
             }
-        } else {
-            aapsLogger.warn(LTag.PUMPBTCOMM, "Descriptor value <= 0")
         }
     }
 
@@ -521,23 +538,6 @@ class BLEComm @Inject internal constructor(
     private val uartWriteBTGattChar: BluetoothGattCharacteristic
         get() = uartWrite
             ?: BluetoothGattCharacteristic(UUID.fromString(WRITE_UUID), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT, 0).also { uartWrite = it }
-
-    @SuppressLint("MissingPermission")
-    fun close() {
-        aapsLogger.debug(LTag.PUMPBTCOMM, "BluetoothAdapter close")
-        val gattToClose: BluetoothGatt?
-        synchronized(bleStateLock) {
-            gattToClose = mBluetoothGatt
-            mBluetoothGatt = null
-        }
-        if (gattToClose != null) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "Closing GATT")
-            gattToClose.close()
-        } else {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "GATT already null")
-        }
-        SystemClock.sleep(100)
-    }
 
     /** Connect flow: 4. When services are discovered find characteristics and set notifications*/
     private fun findCharacteristic() {

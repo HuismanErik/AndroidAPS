@@ -53,7 +53,7 @@ class BLEComm @Inject internal constructor(
     companion object {
 
         private const val WRITE_DELAY_MILLIS: Long = 10
-        private const val WRITE_TIMEOUT_MILLIS = 3000L
+        private const val WRITE_TIMEOUT_MILLIS = 5000L
         private const val SERVICE_UUID = "669A9001-0008-968F-E311-6050405558B3"
         private const val READ_UUID = "669a9120-0008-968f-e311-6050405558b3"
         private const val WRITE_UUID = "669a9101-0008-968f-e311-6050405558b3"
@@ -66,7 +66,7 @@ class BLEComm @Inject internal constructor(
         private const val MANUFACTURER_ID = 18305
     }
 
-    private val reconnectCooldownMillis: Long = 3000
+    private val reconnectCooldownMillis: Long = 5000
     private val maxConnectAttempts: Int = 3
     private var connectAttempts: Int = 0
     private var reconnectBlockedUntil: Long = 0
@@ -300,9 +300,6 @@ class BLEComm @Inject internal constructor(
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Services discovered successfully - finding characteristics")
                 findCharacteristic()
-                synchronized(bleStateLock) {
-                    isConnected = true
-                }
             } else {
                 aapsLogger.error(LTag.PUMPBTCOMM, "Service discovery failed with status: $status")
                 handleGattFailure("Service discovery failed: $status")
@@ -459,7 +456,7 @@ class BLEComm @Inject internal constructor(
             isConnected = false
             connectAttempts++
 
-            if (connectAttempts < maxConnectAttempts && reason.contains("133")) {
+            if (connectAttempts <= maxConnectAttempts && reason.contains("133")) {
                 reconnectBlockedUntil = System.currentTimeMillis() + reconnectCooldownMillis
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Retrying connect attempt $connectAttempts/$maxConnectAttempts after cooldown")
                 handler.postDelayed({
@@ -526,7 +523,6 @@ class BLEComm @Inject internal constructor(
                                             writeTimeoutRunnable = Runnable {
                                                 aapsLogger.error(LTag.PUMPBTCOMM, "Write timeout")
                                                 mCallback?.onSendMessageError("Write timeout", true)
-                                                disconnect("write timeout")
                                             }
                                             handler.postDelayed(writeTimeoutRunnable!!, WRITE_TIMEOUT_MILLIS)
                                         }

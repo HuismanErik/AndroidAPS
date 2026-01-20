@@ -300,6 +300,9 @@ class BLEComm @Inject internal constructor(
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Services discovered successfully - finding characteristics")
                 findCharacteristic()
+                synchronized(bleStateLock) {
+                    isConnected = true
+                }
             } else {
                 aapsLogger.error(LTag.PUMPBTCOMM, "Service discovery failed with status: $status")
                 handleGattFailure("Service discovery failed: $status")

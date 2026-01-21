@@ -131,6 +131,7 @@ class BLEComm @Inject internal constructor(
             aapsLogger.error(LTag.PUMPBTCOMM, "missing permission: $from")
             return false
         }
+        stopScan()
         aapsLogger.debug(LTag.PUMPBTCOMM, "Initializing BLEComm.")
         if (mBluetoothAdapter == null) {
             aapsLogger.error("Unable to obtain a BluetoothAdapter.")
@@ -166,6 +167,7 @@ class BLEComm @Inject internal constructor(
     /** Connect flow: 2. When device is found this is called by onScanResult() */
     @SuppressLint("MissingPermission")
     private fun connectGatt(device: BluetoothDevice) {
+        stopScan()
         synchronized(bleStateLock) {
             // Reset sequence counter
             mWriteSequenceNumber = 0
@@ -462,6 +464,8 @@ class BLEComm @Inject internal constructor(
             if (connectAttempts <= maxConnectAttempts && reason.contains("133")) {
                 reconnectBlockedUntil = System.currentTimeMillis() + reconnectCooldownMillis
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Retrying connect attempt $connectAttempts/$maxConnectAttempts after cooldown")
+                // after 133 force rescan, the deviceAddress is set to null
+                mDeviceAddress = null
                 handler.postDelayed({
                                         connect("Retry after GATT 133", mDeviceSN)
                                     }, reconnectCooldownMillis)
@@ -473,6 +477,7 @@ class BLEComm @Inject internal constructor(
             }
         }
         close()
+        SystemClock.sleep(1000)
     }
 
     fun sendMessage(message: ByteArray) {

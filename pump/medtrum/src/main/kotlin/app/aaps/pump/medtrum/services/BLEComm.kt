@@ -67,7 +67,7 @@ class BLEComm @Inject internal constructor(
     }
 
     private val reconnectCooldownMillis: Long = 5000
-    private val maxConnectAttempts: Int = 3
+    private val maxConnectAttempts: Int = 5
     private var connectAttempts: Int = 0
     private var reconnectBlockedUntil: Long = 0
     private val handler =
@@ -462,13 +462,13 @@ class BLEComm @Inject internal constructor(
             connectAttempts++
 
             if (connectAttempts <= maxConnectAttempts && reason.contains("133")) {
-                reconnectBlockedUntil = System.currentTimeMillis() + reconnectCooldownMillis
+                reconnectBlockedUntil = System.currentTimeMillis() + (reconnectCooldownMillis * connectAttempts)
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Retrying connect attempt $connectAttempts/$maxConnectAttempts after cooldown")
                 // after 133 force rescan, the deviceAddress is set to null
                 mDeviceAddress = null
                 handler.postDelayed({
                                         connect("Retry after GATT 133", mDeviceSN)
-                                    }, reconnectCooldownMillis)
+                                    }, reconnectCooldownMillis * connectAttempts)
             } else {
                 reconnectBlockedUntil = System.currentTimeMillis() + 10000
                 aapsLogger.error(LTag.PUMPBTCOMM, "Max retries reached for GATT failure: $reason")

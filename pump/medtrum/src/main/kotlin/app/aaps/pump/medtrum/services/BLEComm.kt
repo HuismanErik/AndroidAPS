@@ -193,18 +193,23 @@ class BLEComm @Inject internal constructor(
             wasConnecting = isConnecting
             isConnecting = false
         }
+
         if (wasConnecting) {
             stopScan()
             SystemClock.sleep(100)
         }
+
         synchronized(bleStateLock) {
-            if (isConnected) {
-                aapsLogger.debug(LTag.PUMPBTCOMM, "Connected, disconnecting - will close after callback")
+            if (mBluetoothGatt != null) {
+                aapsLogger.debug(LTag.PUMPBTCOMM, "Requesting disconnect...")
                 mBluetoothGatt?.disconnect()
-                // Delay close tot na disconnect-callback
-                handler.postDelayed({ close() }, 500)
+                handler.removeCallbacksAndMessages(null) // Verwijder oude taken
+                handler.postDelayed({
+                                        aapsLogger.warn(LTag.PUMPBTCOMM, "Disconnect timeout (watchdog) - forcing close")
+                                        close()
+                                    }, 3000)
             } else {
-                aapsLogger.debug(LTag.PUMPBTCOMM, "Not connected, closing gatt")
+                aapsLogger.debug(LTag.PUMPBTCOMM, "Gatt was null, cleaning up")
                 isConnected = false
                 mCallback?.onBLEDisconnected()
                 close()
@@ -214,17 +219,30 @@ class BLEComm @Inject internal constructor(
 
     @SuppressLint("MissingPermission")
     fun close() {
-        aapsLogger.debug(LTag.PUMPBTCOMM, "BluetoothAdapter close")
+        // Verwijder eventuele pending timeouts om dubbele calls te voorkomen
+        handler.removeCallbacksAndMessages(null)
+
         val gattToClose: BluetoothGatt?
         synchronized(bleStateLock) {
+            if (mBluetoothGatt == null) {
+                aapsLogger.debug(LTag.PUMPBTCOMM, "GATT already null, skipping close")
+                return
+            }
             gattToClose = mBluetoothGatt
             mBluetoothGatt = null
+            isConnected = false
+            isConnecting = false
         }
+
+        // Doe de daadwerkelijke close() buiten de lock om deadlocks te voorkomen
+        // en check of gattToClose niet null is (dubbelcheck)
         if (gattToClose != null) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "Closing GATT")
-            gattToClose.close()
-        } else {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "GATT already null")
+            aapsLogger.debug(LTag.PUMPBTCOMM, "Closing GATT instance now")
+            try {
+                gattToClose.close()
+            } catch (e: Exception) {
+                aapsLogger.error(LTag.PUMPBTCOMM, "Error closing GATT: ${e.message}")
+            }
         }
         SystemClock.sleep(100)
     }
@@ -259,6 +277,7 @@ class BLEComm @Inject internal constructor(
 
         /** Connect flow: 3. When we are connected discover services*/
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            handler.removeCallbacksAndMessages(null)
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 ToastUtils.errorToast(context, context.getString(app.aaps.core.ui.R.string.need_connect_permission))
                 aapsLogger.error(LTag.PUMPBTCOMM, "missing permissions")

@@ -91,8 +91,6 @@ class BLEComm @Inject internal constructor(
     private var mDeviceAddress: String? = null
     private var writeTimeoutRunnable: Runnable? = null
 
-    private val bleStateLock = Any()  // Dedicated lock for BLE state
-
     fun setCallback(callback: BLECommCallback?) {
         this.mCallback = callback
     }
@@ -137,11 +135,11 @@ class BLEComm @Inject internal constructor(
             aapsLogger.error("Unable to obtain a BluetoothAdapter.")
             return false
         }
-        synchronized(bleStateLock) {
+        handler.post {
             val now = System.currentTimeMillis()
             if (now < reconnectBlockedUntil) {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "connect ignored: cooldown active")
-                return true
+                return@post
             }
             isConnected = false
             isConnecting = true
@@ -160,15 +158,14 @@ class BLEComm @Inject internal constructor(
             mDeviceSN = deviceSN
             startScan()
         }
-
-        return true
+        return true;
     }
 
     /** Connect flow: 2. When device is found this is called by onScanResult() */
     @SuppressLint("MissingPermission")
     private fun connectGatt(device: BluetoothDevice) {
         stopScan()
-        synchronized(bleStateLock) {
+        handler.post {
             // Reset sequence counter
             mWriteSequenceNumber = 0
             if (mBluetoothGatt == null) {
@@ -188,18 +185,12 @@ class BLEComm @Inject internal constructor(
             return
         }
         aapsLogger.debug(LTag.PUMPBTCOMM, "disconnect from: $from")
-        val wasConnecting: Boolean
-        synchronized(bleStateLock) {
-            wasConnecting = isConnecting
-            isConnecting = false
-        }
-
-        if (wasConnecting) {
-            stopScan()
-            SystemClock.sleep(100)
-        }
-
-        synchronized(bleStateLock) {
+        handler.post {
+            if (isConnecting) {
+                stopScan()
+                SystemClock.sleep(100)
+            }
+            isConnecting = false;
             if (mBluetoothGatt != null) {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Requesting disconnect...")
                 mBluetoothGatt?.disconnect()
@@ -222,29 +213,27 @@ class BLEComm @Inject internal constructor(
         // Verwijder eventuele pending timeouts om dubbele calls te voorkomen
         handler.removeCallbacksAndMessages(null)
 
-        val gattToClose: BluetoothGatt?
-        synchronized(bleStateLock) {
+        handler.post {
             if (mBluetoothGatt == null) {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "GATT already null, skipping close")
-                return
+                return@post
             }
-            gattToClose = mBluetoothGatt
+            val gattToClose = mBluetoothGatt
             mBluetoothGatt = null
             isConnected = false
             isConnecting = false
-        }
 
-        // Doe de daadwerkelijke close() buiten de lock om deadlocks te voorkomen
-        // en check of gattToClose niet null is (dubbelcheck)
-        if (gattToClose != null) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "Closing GATT instance now")
-            try {
-                gattToClose.close()
-            } catch (e: Exception) {
-                aapsLogger.error(LTag.PUMPBTCOMM, "Error closing GATT: ${e.message}")
+            // Doe de daadwerkelijke close() buiten de lock om deadlocks te voorkomen
+            // en check of gattToClose niet null is (dubbelcheck)
+            if (gattToClose != null) {
+                aapsLogger.debug(LTag.PUMPBTCOMM, "Closing GATT instance now")
+                try {
+                    gattToClose.close()
+                } catch (e: Exception) {
+                    aapsLogger.error(LTag.PUMPBTCOMM, "Error closing GATT: ${e.message}")
+                }
             }
         }
-        SystemClock.sleep(100)
     }
 
     /** Scan callback  */
@@ -284,12 +273,12 @@ class BLEComm @Inject internal constructor(
                 return
             }
 
-            synchronized(bleStateLock) {
+            handler.post {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "onConnectionStateChange newState: $newState status: $status")
 
                 if (status == 133) {
                     handleGattFailure("status 133")
-                    return
+                    return@post
                 }
 
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
@@ -317,16 +306,16 @@ class BLEComm @Inject internal constructor(
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "onServicesDiscovered status: $status")
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                aapsLogger.debug(LTag.PUMPBTCOMM, "Services discovered successfully - finding characteristics")
-                findCharacteristic()
-                synchronized(bleStateLock) {
+            handler.post {
+                aapsLogger.debug(LTag.PUMPBTCOMM, "onServicesDiscovered status: $status")
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    aapsLogger.debug(LTag.PUMPBTCOMM, "Services discovered successfully - finding characteristics")
+                    findCharacteristic()
                     isConnected = true
+                } else {
+                    aapsLogger.error(LTag.PUMPBTCOMM, "Service discovery failed with status: $status")
+                    handleGattFailure("Service discovery failed: $status")
                 }
-            } else {
-                aapsLogger.error(LTag.PUMPBTCOMM, "Service discovery failed with status: $status")
-                handleGattFailure("Service discovery failed: $status")
             }
         }
 
@@ -408,11 +397,11 @@ class BLEComm @Inject internal constructor(
 
     @SuppressLint("MissingPermission")
     private fun readDescriptor(descriptor: BluetoothGattDescriptor?) {
-        synchronized(bleStateLock) {
+        handler.post {
             aapsLogger.debug(LTag.PUMPBTCOMM, "readDescriptor")
             if (mBluetoothAdapter == null || mBluetoothGatt == null || descriptor == null) {
                 handleNotInitialized()
-                return
+                return@post
             }
             mBluetoothGatt?.readDescriptor(descriptor)
         }
@@ -420,31 +409,33 @@ class BLEComm @Inject internal constructor(
 
     @Suppress("DEPRECATION")
     private fun checkDescriptor(descriptor: BluetoothGattDescriptor) {
-        aapsLogger.debug(LTag.PUMPBTCOMM, "checkDescriptor value: ${descriptor.value?.contentToString()}")
-        val service = getGattService()
-        if (mBluetoothAdapter == null || mBluetoothGatt == null || service == null) {
-            handleNotInitialized()
-            return
-        }
-        if (descriptor.value.toInt() > 0) {
-            var notificationEnabled = true
-            val characteristics = service.characteristics
-            for (j in 0 until characteristics.size) {
-                val configDescriptor =
-                    characteristics[j].getDescriptor(UUID.fromString(CONFIG_UUID))
-                if (configDescriptor.value == null || configDescriptor.value.toInt() <= 0) {
-                    notificationEnabled = false
-                }
+        handler.post {
+            aapsLogger.debug(LTag.PUMPBTCOMM, "checkDescriptor value: ${descriptor.value?.contentToString()}")
+            val service = getGattService()
+            if (mBluetoothAdapter == null || mBluetoothGatt == null || service == null) {
+                handleNotInitialized()
+                return@post
             }
-            if (notificationEnabled) {
-                aapsLogger.debug(LTag.PUMPBTCOMM, "Notifications enabled! Calling onBLEConnected")
-                synchronized(bleStateLock) {
+            if (descriptor.value.toInt() > 0) {
+                var notificationEnabled = true
+                val characteristics = service.characteristics
+                for (j in 0 until characteristics.size) {
+                    val configDescriptor =
+                        characteristics[j].getDescriptor(UUID.fromString(CONFIG_UUID))
+                    if (configDescriptor.value == null || configDescriptor.value.toInt() <= 0) {
+                        notificationEnabled = false
+                    }
+                }
+                if (notificationEnabled) {
+                    aapsLogger.debug(LTag.PUMPBTCOMM, "Notifications enabled! Calling onBLEConnected")
                     connectAttempts = 0
                     /** Connect flow: 6. Connected */
                     mCallback?.onBLEConnected()
+
+                } else {
+                    aapsLogger.warn(LTag.PUMPBTCOMM, "Notifications NOT fully enabled")
                 }
-            } else {
-                aapsLogger.warn(LTag.PUMPBTCOMM, "Notifications NOT fully enabled")
+
             }
         }
     }
@@ -452,11 +443,11 @@ class BLEComm @Inject internal constructor(
     @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
     private fun setCharacteristicNotification(characteristic: BluetoothGattCharacteristic?, enabled: Boolean) {
-        synchronized(bleStateLock) {
+        handler.post {
             aapsLogger.debug(LTag.PUMPBTCOMM, "setCharacteristicNotification")
             if (mBluetoothAdapter == null || mBluetoothGatt == null) {
                 handleNotInitialized()
-                return
+                return@post
             }
             mBluetoothGatt?.setCharacteristicNotification(characteristic, enabled)
             characteristic?.getDescriptor(UUID.fromString(CONFIG_UUID))?.let {
@@ -474,7 +465,7 @@ class BLEComm @Inject internal constructor(
     }
 
     private fun handleGattFailure(reason: String) {
-        synchronized(bleStateLock) {
+        handler.post {
             aapsLogger.error(LTag.PUMPBTCOMM, "GATT failure: $reason")
             isConnecting = false
             isConnected = false
@@ -500,25 +491,26 @@ class BLEComm @Inject internal constructor(
     }
 
     fun sendMessage(message: ByteArray) {
-        synchronized(bleStateLock) {
+        handler.post {
             if (uartWrite == null || !isConnected) {
                 mCallback?.onSendMessageError("BLE not ready", true)
-                return
+                return@post
             }
             aapsLogger.debug(LTag.PUMPBTCOMM, "sendMessage message = " + message.contentToString())
             if (mWritePackets?.allPacketsConsumed() == false) {
                 aapsLogger.error(LTag.PUMPBTCOMM, "sendMessage not all packets consumed!! unable to sent message!")
-                return
+                return@post
             }
             mWritePackets = WriteCommandPackets(message, mWriteSequenceNumber)
             mWriteSequenceNumber = (mWriteSequenceNumber + 1) % 256
-        }
-        val value: ByteArray? = mWritePackets?.getNextPacket()
-        if (value != null) {
-            writeCharacteristic(uartWriteBTGattChar, value)
-        } else {
-            aapsLogger.error(LTag.PUMPBTCOMM, "sendMessage error in writePacket!")
-            mCallback?.onSendMessageError("error in writePacket!", false)
+
+            val value: ByteArray? = mWritePackets?.getNextPacket()
+            if (value != null) {
+                writeCharacteristic(uartWriteBTGattChar, value)
+            } else {
+                aapsLogger.error(LTag.PUMPBTCOMM, "sendMessage error in writePacket!")
+                mCallback?.onSendMessageError("error in writePacket!", false)
+            }
         }
     }
 
@@ -535,24 +527,22 @@ class BLEComm @Inject internal constructor(
     @SuppressLint("MissingPermission")
     private fun writeCharacteristic(characteristic: BluetoothGattCharacteristic, data: ByteArray?) {
         handler.postDelayed({
-                                synchronized(bleStateLock) {
-                                    if (mBluetoothAdapter == null || mBluetoothGatt == null || uartWrite == null) {
-                                        handleNotInitialized()
+                                if (mBluetoothAdapter == null || mBluetoothGatt == null || uartWrite == null) {
+                                    handleNotInitialized()
+                                } else {
+                                    characteristic.value = data
+                                    characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                                    aapsLogger.debug(LTag.PUMPBTCOMM, "writeCharacteristic: ${data.contentToString()}")
+                                    val success = mBluetoothGatt?.writeCharacteristic(characteristic)
+                                    if (success != true) {
+                                        mCallback?.onSendMessageError("Failed to write characteristic", true)
                                     } else {
-                                        characteristic.value = data
-                                        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                                        aapsLogger.debug(LTag.PUMPBTCOMM, "writeCharacteristic: ${data.contentToString()}")
-                                        val success = mBluetoothGatt?.writeCharacteristic(characteristic)
-                                        if (success != true) {
-                                            mCallback?.onSendMessageError("Failed to write characteristic", true)
-                                        } else {
-                                            writeTimeoutRunnable?.let { handler.removeCallbacks(it) }
-                                            writeTimeoutRunnable = Runnable {
-                                                aapsLogger.error(LTag.PUMPBTCOMM, "Write timeout")
-                                                mCallback?.onSendMessageError("Write timeout", true)
-                                            }
-                                            handler.postDelayed(writeTimeoutRunnable!!, WRITE_TIMEOUT_MILLIS)
+                                        writeTimeoutRunnable?.let { handler.removeCallbacks(it) }
+                                        writeTimeoutRunnable = Runnable {
+                                            aapsLogger.error(LTag.PUMPBTCOMM, "Write timeout")
+                                            mCallback?.onSendMessageError("Write timeout", true)
                                         }
+                                        handler.postDelayed(writeTimeoutRunnable!!, WRITE_TIMEOUT_MILLIS)
                                     }
                                 }
                             }, WRITE_DELAY_MILLIS)
@@ -586,7 +576,7 @@ class BLEComm @Inject internal constructor(
     }
 
     private fun handleNotInitialized() {
-        synchronized(bleStateLock) {
+        handler.post {
             aapsLogger.error("BluetoothAdapter not initialized_ERROR")
             isConnecting = false
             isConnected = false

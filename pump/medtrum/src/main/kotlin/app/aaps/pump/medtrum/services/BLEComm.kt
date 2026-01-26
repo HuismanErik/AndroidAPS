@@ -53,6 +53,9 @@ class BLEComm @Inject internal constructor(
 
         private const val WRITE_DELAY_MILLIS: Long = 10
         private const val WRITE_TIMEOUT_MILLIS = 5000L
+
+        private const val MAX_CONNECT_ATTEMPTS: Int = 5
+
         private const val SERVICE_UUID = "669A9001-0008-968F-E311-6050405558B3"
         private const val READ_UUID = "669a9120-0008-968f-e311-6050405558b3"
         private const val WRITE_UUID = "669a9101-0008-968f-e311-6050405558b3"
@@ -66,7 +69,6 @@ class BLEComm @Inject internal constructor(
     }
 
     private val reconnectCooldownMillis: Long = 5000
-    private val maxConnectAttempts: Int = 5
     private var connectAttempts: Int = 0
     private var reconnectBlockedUntil: Long = 0
 
@@ -77,7 +79,6 @@ class BLEComm @Inject internal constructor(
     private val mBluetoothAdapter: BluetoothAdapter?
         get() = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager?)?.adapter
 
-    // ===== BLE state (ALLEEN via handler-thread aanpassen!) =====
     private var mBluetoothGatt: BluetoothGatt? = null
     private var isConnected = false
     private var isConnecting = false
@@ -158,6 +159,7 @@ class BLEComm @Inject internal constructor(
             if (mDeviceAddress != null && mDeviceSN == deviceSN) {
                 // Skip scanning and directly connect to gatt
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Skipping scan and directly connecting to gatt")
+
                 mBluetoothAdapter?.getRemoteDevice(mDeviceAddress)?.let {
                     connectGattInternal(it)
                 }
@@ -169,14 +171,15 @@ class BLEComm @Inject internal constructor(
                 startScan()
             }
         }
+
         return true
     }
 
     @SuppressLint("MissingPermission")
     private fun connectGattInternal(device: BluetoothDevice) {
         stopScan()
+        // Reset sequence counter
         mWriteSequenceNumber = 0
-
         if (mBluetoothGatt == null) {
             mBluetoothGatt = device.connectGatt(
                 context,
@@ -245,6 +248,7 @@ class BLEComm @Inject internal constructor(
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             aapsLogger.debug(LTag.PUMPBTCOMM, "OnScanResult! $result")
             super.onScanResult(callbackType, result)
+            stopScan()
 
             val manufacturerData =
                 result.scanRecord?.getManufacturerSpecificData(MANUFACTURER_ID)
@@ -254,10 +258,10 @@ class BLEComm @Inject internal constructor(
 
             if (manufacturerData?.getDeviceSN() == mDeviceSN) {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Found our device! deviceSN: " + manufacturerData.getDeviceSN())
-                handler.post {
+                handler.postDelayed( {
                     mDeviceAddress = result.device.address
                     connectGattInternal(result.device)
-                }
+                }, 1000)
             }
         }
 
@@ -329,7 +333,7 @@ class BLEComm @Inject internal constructor(
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             aapsLogger.debug(LTag.PUMPBTCOMM, "onCharacteristicChanged data: " + characteristic.value.contentToString() + " UUID: " + characteristic.uuid.toString())
 
-            val value = characteristic.value.copyOf() // Maak direct een kopie van de data!
+            val value = characteristic.value.copyOf() // Create a copy of data
             val uuid = characteristic.uuid
             handler.post {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "onCharacteristicChanged UUID: $uuid")
@@ -482,12 +486,12 @@ class BLEComm @Inject internal constructor(
             disconnect("Calling disconnect GATT failure: $reason")
             // after closing wait at leat 1 second before continueing
             handler.postDelayed({
-                                    if (connectAttempts <= maxConnectAttempts && reason.contains("133")) {
+                                    if (connectAttempts <= MAX_CONNECT_ATTEMPTS && reason.contains("133")) {
                                         val delay = reconnectCooldownMillis * connectAttempts
                                         reconnectBlockedUntil = System.currentTimeMillis() + delay
                                         // after 133 force rescan, the deviceAddress is set to null
                                         mDeviceAddress = null
-
+                                        aapsLogger.debug(LTag.PUMPBTCOMM, "Retrying connect attempt $connectAttempts/$MAX_CONNECT_ATTEMPTS after cooldown")
                                         handler.postDelayed({
                                                                 connect("Retry after GATT 133", mDeviceSN)
                                                             }, delay)
@@ -517,6 +521,14 @@ class BLEComm @Inject internal constructor(
         }
     }
 
+    private fun getGattService(): BluetoothGattService? {
+        aapsLogger.debug(LTag.PUMPBTCOMM, "getGattService")
+        if (mBluetoothAdapter == null || mBluetoothGatt == null) {
+            handleNotInitialized()
+            return null
+        }
+        return mBluetoothGatt?.getService(UUID.fromString(SERVICE_UUID))
+    }
 
     @SuppressLint("MissingPermission")
     private fun writeCharacteristic(characteristic: BluetoothGattCharacteristic, data: ByteArray) {
@@ -528,6 +540,7 @@ class BLEComm @Inject internal constructor(
 
                                 characteristic.value = data
                                 characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                                aapsLogger.debug(LTag.PUMPBTCOMM, "writeCharacteristic: ${data.contentToString()}")
                                 val success = mBluetoothGatt?.writeCharacteristic(characteristic) == true
 
                                 if (!success) {
@@ -539,15 +552,6 @@ class BLEComm @Inject internal constructor(
                                     handler.postDelayed(writeTimeoutRunnable!!, WRITE_TIMEOUT_MILLIS)
                                 }
                             }, WRITE_DELAY_MILLIS)
-    }
-
-    private fun getGattService(): BluetoothGattService? {
-        aapsLogger.debug(LTag.PUMPBTCOMM, "getGattService")
-        if (mBluetoothAdapter == null || mBluetoothGatt == null) {
-            handleNotInitialized()
-            return null
-        }
-        return mBluetoothGatt?.getService(UUID.fromString(SERVICE_UUID))
     }
 
     /** Connect flow: 4. When services are discovered find characteristics and set notifications*/

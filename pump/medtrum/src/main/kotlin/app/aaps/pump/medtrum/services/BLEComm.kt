@@ -152,7 +152,7 @@ class BLEComm @Inject internal constructor(
                 return@post
             }
 
-            val recentlySeen = System.currentTimeMillis() - lastSeenTimestamp < 5000
+            val recentlySeen = System.currentTimeMillis() - lastSeenTimestamp < 12000
             isConnected = false
             isConnecting = true
             mWritePackets = null
@@ -264,23 +264,25 @@ class BLEComm @Inject internal constructor(
     /** Scan callback  */
     private val mScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            lastSeenTimestamp = System.currentTimeMillis()
-            aapsLogger.debug(LTag.PUMPBTCOMM, "OnScanResult! $result")
-            super.onScanResult(callbackType, result)
-            stopScan()
+            handler.post {
+                lastSeenTimestamp = System.currentTimeMillis()
+                aapsLogger.debug(LTag.PUMPBTCOMM, "OnScanResult! $result")
+                super.onScanResult(callbackType, result)
+                stopScan()
 
-            val manufacturerData =
-                result.scanRecord?.getManufacturerSpecificData(MANUFACTURER_ID)
-                    ?.let { ManufacturerData(it) }
+                val manufacturerData =
+                    result.scanRecord?.getManufacturerSpecificData(MANUFACTURER_ID)
+                        ?.let { ManufacturerData(it) }
 
-            aapsLogger.debug(LTag.PUMPBTCOMM, "Found deviceSN: " + manufacturerData?.getDeviceSN())
+                aapsLogger.debug(LTag.PUMPBTCOMM, "Found deviceSN: " + manufacturerData?.getDeviceSN())
 
-            if (manufacturerData?.getDeviceSN() == mDeviceSN) {
-                aapsLogger.debug(LTag.PUMPBTCOMM, "Found our device! deviceSN: " + manufacturerData.getDeviceSN())
-                handler.postDelayed({
-                                        mDeviceAddress = result.device.address
-                                        connectGattInternal(result.device)
-                                    }, 1000)
+                if (manufacturerData?.getDeviceSN() == mDeviceSN) {
+                    aapsLogger.debug(LTag.PUMPBTCOMM, "Found our device! deviceSN: " + manufacturerData.getDeviceSN())
+                    handler.postDelayed({
+                                            mDeviceAddress = result.device.address
+                                            connectGattInternal(result.device)
+                                        }, 1000)
+                }
             }
         }
 

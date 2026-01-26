@@ -94,6 +94,7 @@ class BLEComm @Inject internal constructor(
     private var mDeviceAddress: String? = null
     private var mCallback: BLECommCallback? = null
     private var writeTimeoutRunnable: Runnable? = null
+    private var lastSeenTimestamp: Long = 0
 
     fun setCallback(callback: BLECommCallback?) {
         handler.post { mCallback = callback }
@@ -151,17 +152,18 @@ class BLEComm @Inject internal constructor(
                 return@post
             }
 
+            val recentlySeen = System.currentTimeMillis() - lastSeenTimestamp < 5000
             isConnected = false
             isConnecting = true
             mWritePackets = null
             mReadPacket = null
 
-            if (mDeviceAddress != null && mDeviceSN == deviceSN) {
+            // When recentlySeen and mDeviceAddress is known, warmup BLE radio and connect with known device
+            if (mDeviceAddress != null && mDeviceSN == deviceSN && recentlySeen) {
                 // Skip scanning and directly connect to gatt
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Skipping scan and directly connecting to gatt")
-
                 mBluetoothAdapter?.getRemoteDevice(mDeviceAddress)?.let {
-                    connectGattInternal(it)
+                    warmUpRadioThenConnect(it)
                 }
             } else {
                 // Scan for device
@@ -174,6 +176,22 @@ class BLEComm @Inject internal constructor(
 
         return true
     }
+
+    @SuppressLint("MissingPermission")
+    private fun warmUpRadioThenConnect(device: BluetoothDevice) {
+        val scanner = mBluetoothAdapter?.bluetoothLeScanner ?: return
+
+        scanner.startScan(null, ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build(), dummyScanCallback)
+
+        handler.postDelayed({
+                                scanner.stopScan(dummyScanCallback)
+                                connectGattInternal(device)
+                            }, 400)
+    }
+
+    private val dummyScanCallback = object : ScanCallback() {}
 
     @SuppressLint("MissingPermission")
     private fun connectGattInternal(device: BluetoothDevice) {
@@ -246,6 +264,7 @@ class BLEComm @Inject internal constructor(
     /** Scan callback  */
     private val mScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            lastSeenTimestamp = System.currentTimeMillis()
             aapsLogger.debug(LTag.PUMPBTCOMM, "OnScanResult! $result")
             super.onScanResult(callbackType, result)
             stopScan()
@@ -258,10 +277,10 @@ class BLEComm @Inject internal constructor(
 
             if (manufacturerData?.getDeviceSN() == mDeviceSN) {
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Found our device! deviceSN: " + manufacturerData.getDeviceSN())
-                handler.postDelayed( {
-                    mDeviceAddress = result.device.address
-                    connectGattInternal(result.device)
-                }, 1000)
+                handler.postDelayed({
+                                        mDeviceAddress = result.device.address
+                                        connectGattInternal(result.device)
+                                    }, 1000)
             }
         }
 
@@ -274,7 +293,7 @@ class BLEComm @Inject internal constructor(
 
         /** Connect flow: 3. When we are connected discover services*/
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 ToastUtils.errorToast(context, context.getString(app.aaps.core.ui.R.string.need_connect_permission))
                 aapsLogger.error(LTag.PUMPBTCOMM, "missing permissions")
                 return
@@ -456,21 +475,23 @@ class BLEComm @Inject internal constructor(
     @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
     private fun setCharacteristicNotification(characteristic: BluetoothGattCharacteristic?, enabled: Boolean) {
-        aapsLogger.debug(LTag.PUMPBTCOMM, "setCharacteristicNotification")
-        if (mBluetoothAdapter == null || mBluetoothGatt == null) {
-            handleNotInitialized()
-            return
-        }
-        mBluetoothGatt?.setCharacteristicNotification(characteristic, enabled)
-        characteristic?.getDescriptor(UUID.fromString(CONFIG_UUID))?.let {
-            if (characteristic.properties and NEEDS_ENABLE_NOTIFICATION > 0) {
-                it.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                mBluetoothGatt?.writeDescriptor(it)
-            } else if (characteristic.properties and NEEDS_ENABLE_INDICATION > 0) {
-                it.value = BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-                mBluetoothGatt?.writeDescriptor(it)
-            } else {
-                // Do nothing
+        handler.post {
+            aapsLogger.debug(LTag.PUMPBTCOMM, "setCharacteristicNotification")
+            if (mBluetoothAdapter == null || mBluetoothGatt == null) {
+                handleNotInitialized()
+                return@post
+            }
+            mBluetoothGatt?.setCharacteristicNotification(characteristic, enabled)
+            characteristic?.getDescriptor(UUID.fromString(CONFIG_UUID))?.let {
+                if (characteristic.properties and NEEDS_ENABLE_NOTIFICATION > 0) {
+                    it.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    mBluetoothGatt?.writeDescriptor(it)
+                } else if (characteristic.properties and NEEDS_ENABLE_INDICATION > 0) {
+                    it.value = BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+                    mBluetoothGatt?.writeDescriptor(it)
+                } else {
+                    // Do nothing
+                }
             }
         }
     }

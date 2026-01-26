@@ -181,11 +181,14 @@ class BLEComm @Inject internal constructor(
     private fun warmUpRadioThenConnect(device: BluetoothDevice) {
         val scanner = mBluetoothAdapter?.bluetoothLeScanner ?: return
 
+        aapsLogger.debug(LTag.PUMPBTCOMM, "Start dummy scan to warm up Radio")
+
         scanner.startScan(null, ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build(), dummyScanCallback)
 
         handler.postDelayed({
+                                aapsLogger.debug(LTag.PUMPBTCOMM, "Stop dummy scan, connectGatt")
                                 scanner.stopScan(dummyScanCallback)
                                 connectGattInternal(device)
                             }, 400)
@@ -267,7 +270,7 @@ class BLEComm @Inject internal constructor(
             handler.post {
                 lastSeenTimestamp = System.currentTimeMillis()
                 aapsLogger.debug(LTag.PUMPBTCOMM, "OnScanResult! $result")
-                super.onScanResult(callbackType, result)
+
                 stopScan()
 
                 val manufacturerData =
@@ -287,7 +290,7 @@ class BLEComm @Inject internal constructor(
         }
 
         override fun onScanFailed(errorCode: Int) {
-            aapsLogger.debug(LTag.PUMPBTCOMM, "Scan FAILED!")
+            aapsLogger.debug(LTag.PUMPBTCOMM, "Scan FAILED! with errorCode: $errorCode")
         }
     }
 

@@ -139,7 +139,6 @@ class BLEComm @Inject internal constructor(
             return false
         }
 
-        stopScan()
         aapsLogger.debug(LTag.PUMPBTCOMM, "Initializing BLEComm.")
         if (mBluetoothAdapter == null) {
             aapsLogger.error("Unable to obtain a BluetoothAdapter.")
@@ -196,12 +195,13 @@ class BLEComm @Inject internal constructor(
 
     private val dummyScanCallback = object : ScanCallback() {}
 
+    /** Connect flow: 2. When device is found this is called by onScanResult() */
     @SuppressLint("MissingPermission")
     private fun connectGattInternal(device: BluetoothDevice) {
-        stopScan()
         // Reset sequence counter
         mWriteSequenceNumber = 0
         if (mBluetoothGatt == null) {
+            aapsLogger.debug(LTag.PUMPBTCOMM, "connectGatt() called")
             mBluetoothGatt = device.connectGatt(
                 context,
                 false,
@@ -224,7 +224,12 @@ class BLEComm @Inject internal constructor(
         aapsLogger.debug(LTag.PUMPBTCOMM, "disconnect from: $from")
         handler.post {
             aapsLogger.debug(LTag.PUMPBTCOMM, "disconnect from: $from")
-            isConnecting = false
+
+            /** isConnecting should false when disconnecting but to be sure **/
+            if (isConnecting) {
+                isConnecting = false
+                stopScan()
+            }
 
             val gatt = mBluetoothGatt
             if (gatt != null) {
@@ -469,14 +474,6 @@ class BLEComm @Inject internal constructor(
         }
     }
 
-    private val uartWriteBTGattChar: BluetoothGattCharacteristic
-        get() = uartWrite
-            ?: BluetoothGattCharacteristic(
-                UUID.fromString(WRITE_UUID),
-                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-                0
-            ).also { uartWrite = it }
-
     @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
     private fun setCharacteristicNotification(characteristic: BluetoothGattCharacteristic?, enabled: Boolean) {
@@ -501,6 +498,7 @@ class BLEComm @Inject internal constructor(
         }
     }
 
+    /** Handle Gatt failures disconnect and attempt to reconnect 5 times in case of status 133 **/
     private fun handleGattFailure(reason: String) {
         handler.post {
             aapsLogger.error(LTag.PUMPBTCOMM, "GATT failure: $reason")
@@ -579,6 +577,14 @@ class BLEComm @Inject internal constructor(
                                 }
                             }, WRITE_DELAY_MILLIS)
     }
+
+    private val uartWriteBTGattChar: BluetoothGattCharacteristic
+        get() = uartWrite
+            ?: BluetoothGattCharacteristic(
+                UUID.fromString(WRITE_UUID),
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
+                0
+            ).also { uartWrite = it }
 
     /** Connect flow: 4. When services are discovered find characteristics and set notifications*/
     private fun findCharacteristic() {

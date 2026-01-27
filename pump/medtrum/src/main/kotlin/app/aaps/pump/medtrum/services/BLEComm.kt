@@ -289,7 +289,7 @@ class BLEComm @Inject internal constructor(
                     handler.postDelayed({
                                             mDeviceAddress = result.device.address
                                             connectGattInternal(result.device)
-                                        }, 1000)
+                                        }, 1500)
                 }
             }
         }

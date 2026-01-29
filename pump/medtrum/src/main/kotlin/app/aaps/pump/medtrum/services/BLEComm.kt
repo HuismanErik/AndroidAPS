@@ -113,6 +113,7 @@ class BLEComm @Inject internal constructor(
             aapsLogger.error(LTag.PUMPBTCOMM, "missing permissions")
             return false
         }
+        isScanning = true;
         aapsLogger.debug(LTag.PUMPBTCOMM, "Start scan!!")
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -171,7 +172,6 @@ class BLEComm @Inject internal constructor(
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Scanning for device")
                 mDeviceAddress = null
                 mDeviceSN = deviceSN
-                isScanning = true;
                 startScan()
 
                 lastSeenTimestamp = 0L

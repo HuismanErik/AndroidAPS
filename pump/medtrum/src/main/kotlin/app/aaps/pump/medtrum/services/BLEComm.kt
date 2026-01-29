@@ -68,6 +68,7 @@ class BLEComm @Inject internal constructor(
         private const val MANUFACTURER_ID = 18305
     }
 
+    private var isScanning = false;
     private val reconnectCooldownMillis: Long = 5000
     private var connectAttempts: Int = 0
     private var reconnectBlockedUntil: Long = 0
@@ -127,6 +128,7 @@ class BLEComm @Inject internal constructor(
 
     @SuppressLint("MissingPermission")
     fun stopScan() {
+        isScanning = false
         mBluetoothAdapter?.bluetoothLeScanner?.stopScan(mScanCallback)
     }
 
@@ -169,7 +171,18 @@ class BLEComm @Inject internal constructor(
                 aapsLogger.debug(LTag.PUMPBTCOMM, "Scanning for device")
                 mDeviceAddress = null
                 mDeviceSN = deviceSN
+                isScanning = true;
                 startScan()
+
+                lastSeenTimestamp = 0L
+
+                handler.postDelayed({
+                                        if (isScanning && lastSeenTimestamp == 0L) {
+                                            aapsLogger.warn(LTag.PUMPBTCOMM, "BLE scan timeout – no results received")
+                                            handleFailure("Scan timeout", true)
+                                        }
+                                    }, 8000)
+
             }
         }
 
@@ -182,9 +195,11 @@ class BLEComm @Inject internal constructor(
 
         aapsLogger.debug(LTag.PUMPBTCOMM, "Start dummy scan to warm up Radio")
 
-        scanner.startScan(null, ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build(), dummyScanCallback)
+        scanner.startScan(
+            null, ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .build(), dummyScanCallback
+        )
 
         handler.postDelayed({
                                 aapsLogger.debug(LTag.PUMPBTCOMM, "Stop dummy scan, connectGatt")
@@ -313,7 +328,7 @@ class BLEComm @Inject internal constructor(
                 aapsLogger.debug(LTag.PUMPBTCOMM, "onConnectionStateChange newState: $newState status: $status")
 
                 if (status == 133) {
-                    handleGattFailure("status 133")
+                    handleFailure("status 133", true)
                     return@post
                 }
 
@@ -350,7 +365,7 @@ class BLEComm @Inject internal constructor(
                     isConnected = true
                 } else {
                     aapsLogger.error(LTag.PUMPBTCOMM, "Service discovery failed with status: $status")
-                    handleGattFailure("Service discovery failed: $status")
+                    handleFailure("Service discovery failed: $status", status == 133)
                 }
             }
         }
@@ -499,7 +514,7 @@ class BLEComm @Inject internal constructor(
     }
 
     /** Handle Gatt failures disconnect and attempt to reconnect 5 times in case of status 133 **/
-    private fun handleGattFailure(reason: String) {
+    private fun handleFailure(reason: String, retry: Boolean) {
         handler.post {
             aapsLogger.error(LTag.PUMPBTCOMM, "GATT failure: $reason")
 
@@ -507,21 +522,27 @@ class BLEComm @Inject internal constructor(
             isConnected = false
             connectAttempts++
 
+            if (mBluetoothGatt != null) {
+                disconnect("Calling disconnect GATT failure: $reason")
+            } else {
+                closeInternal()
+            }
+
             disconnect("Calling disconnect GATT failure: $reason")
             // after closing wait at leat 1 second before continueing
             handler.postDelayed({
-                                    if (connectAttempts <= MAX_CONNECT_ATTEMPTS && reason.contains("133")) {
+                                    if (connectAttempts <= MAX_CONNECT_ATTEMPTS && retry) {
                                         val delay = reconnectCooldownMillis * connectAttempts
                                         reconnectBlockedUntil = System.currentTimeMillis() + delay
-                                        // after 133 force rescan, the deviceAddress is set to null
+                                        // force rescan, the deviceAddress is set to null
                                         mDeviceAddress = null
                                         aapsLogger.debug(LTag.PUMPBTCOMM, "Retrying connect attempt $connectAttempts/$MAX_CONNECT_ATTEMPTS after cooldown")
                                         handler.postDelayed({
-                                                                connect("Retry after GATT 133", mDeviceSN)
+                                                                connect("Retry after $reason", mDeviceSN)
                                                             }, delay)
                                     } else {
                                         reconnectBlockedUntil = System.currentTimeMillis() + 10_000
-                                        aapsLogger.error(LTag.PUMPBTCOMM, "Max retries reached for GATT failure: $reason")
+                                        aapsLogger.error(LTag.PUMPBTCOMM, "Max retries reached for failure: $reason")
                                         connectAttempts = 0
                                         mCallback?.onBLEDisconnected()
                                     }

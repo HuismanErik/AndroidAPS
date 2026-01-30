@@ -192,11 +192,8 @@ class BLEComm @Inject internal constructor(
 
     @SuppressLint("MissingPermission")
     private fun warmUpRadioThenConnect(device: BluetoothDevice) {
-        val scanner = mBluetoothAdapter?.bluetoothLeScanner ?: return
-
         aapsLogger.debug(LTag.PUMPBTCOMM, "Start dummy scan to warm up Radio")
-
-        scanner.startScan(
+        mBluetoothAdapter?.bluetoothLeScanner?.startScan(
             null, ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build(), dummyScanCallback
@@ -204,7 +201,7 @@ class BLEComm @Inject internal constructor(
 
         handler.postDelayed({
                                 aapsLogger.debug(LTag.PUMPBTCOMM, "Stop dummy scan, connectGatt")
-                                scanner.stopScan(dummyScanCallback)
+                                mBluetoothAdapter?.bluetoothLeScanner?.stopScan(dummyScanCallback)
                                 connectGattInternal(device)
                             }, 400)
     }

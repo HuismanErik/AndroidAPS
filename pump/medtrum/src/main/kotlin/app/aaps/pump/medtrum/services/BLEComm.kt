@@ -68,7 +68,7 @@ class BLEComm @Inject internal constructor(
         private const val MANUFACTURER_ID = 18305
     }
 
-    private var isScanning = false;
+    private var isScanning = false
     private val reconnectCooldownMillis: Long = 5000
     private var connectAttempts: Int = 0
     private var reconnectBlockedUntil: Long = 0
@@ -113,7 +113,7 @@ class BLEComm @Inject internal constructor(
             aapsLogger.error(LTag.PUMPBTCOMM, "missing permissions")
             return false
         }
-        isScanning = true;
+        isScanning = true
         aapsLogger.debug(LTag.PUMPBTCOMM, "Start scan!!")
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -154,7 +154,8 @@ class BLEComm @Inject internal constructor(
                 return@post
             }
 
-            val recentlySeen = System.currentTimeMillis() - lastSeenTimestamp < 12000
+            // als er binnen 6 minuten nog contact is geweest dat doen we een snelle dummy scan
+            val recentlySeen = System.currentTimeMillis() - lastSeenTimestamp < 360000
             isConnected = false
             isConnecting = true
             mWritePackets = null
@@ -528,7 +529,6 @@ class BLEComm @Inject internal constructor(
                 closeInternal()
             }
 
-            disconnect("Calling disconnect GATT failure: $reason")
             // after closing wait at leat 1 second before continueing
             handler.postDelayed({
                                     if (connectAttempts <= MAX_CONNECT_ATTEMPTS && retry) {

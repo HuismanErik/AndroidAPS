@@ -129,8 +129,10 @@ class BLEComm @Inject internal constructor(
 
     @SuppressLint("MissingPermission")
     fun stopScan() {
-        isScanning = false
-        mBluetoothAdapter?.bluetoothLeScanner?.stopScan(mScanCallback)
+        if (isScanning) {
+            isScanning = false
+            mBluetoothAdapter?.bluetoothLeScanner?.stopScan(mScanCallback)
+        }
     }
 
     fun connect(from: String, deviceSN: Long): Boolean {
@@ -182,7 +184,7 @@ class BLEComm @Inject internal constructor(
                                             aapsLogger.warn(LTag.PUMPBTCOMM, "BLE scan timeout – no results received")
                                             handleFailure("Scan timeout", true)
                                         }
-                                    }, 8000)
+                                    }, 12000)
 
             }
         }
@@ -193,8 +195,13 @@ class BLEComm @Inject internal constructor(
     @SuppressLint("MissingPermission")
     private fun warmUpRadioThenConnect(device: BluetoothDevice) {
         aapsLogger.debug(LTag.PUMPBTCOMM, "Start dummy scan to warm up Radio")
+
+        val filters = listOf(
+            ScanFilter.Builder().setDeviceName("MT").build()
+        )
+
         mBluetoothAdapter?.bluetoothLeScanner?.startScan(
-            null, ScanSettings.Builder()
+            filters, ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build(), dummyScanCallback
         )
@@ -241,8 +248,8 @@ class BLEComm @Inject internal constructor(
             /** isConnecting should false when disconnecting but to be sure **/
             if (isConnecting) {
                 isConnecting = false
-                stopScan()
             }
+            stopScan()
 
             val gatt = mBluetoothGatt
             if (gatt != null) {
@@ -309,6 +316,8 @@ class BLEComm @Inject internal constructor(
 
         override fun onScanFailed(errorCode: Int) {
             aapsLogger.debug(LTag.PUMPBTCOMM, "Scan FAILED! with errorCode: $errorCode")
+            stopScan()
+            mCallback?.onBLEDisconnected()
         }
     }
 

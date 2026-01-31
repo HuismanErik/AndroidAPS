@@ -129,10 +129,8 @@ class BLEComm @Inject internal constructor(
 
     @SuppressLint("MissingPermission")
     fun stopScan() {
-        if (isScanning) {
-            isScanning = false
-            mBluetoothAdapter?.bluetoothLeScanner?.stopScan(mScanCallback)
-        }
+        isScanning = false
+        mBluetoothAdapter?.bluetoothLeScanner?.stopScan(mScanCallback)
     }
 
     fun connect(from: String, deviceSN: Long): Boolean {

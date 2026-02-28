@@ -222,6 +222,7 @@ class BLEComm @Inject internal constructor(
 
         override fun onScanFailed(errorCode: Int) {
             aapsLogger.debug(LTag.PUMPBTCOMM, "Scan FAILED!")
+            mCallback?.onSendMessageError("BLE Scan failed", false)
         }
     }
 
@@ -235,6 +236,8 @@ class BLEComm @Inject internal constructor(
             aapsLogger.debug(LTag.PUMPBTCOMM, "onServicesDiscovered")
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 findCharacteristic()
+            } else {
+                mCallback?.onSendMessageError("BluetoothGatt onServicesDiscovered failure status: $status", false)
             }
         }
 
@@ -385,7 +388,9 @@ class BLEComm @Inject internal constructor(
                     mDeviceAddress = null
                 }
                 // Wait a bit before retrying
-                SystemClock.sleep(2000)
+                SystemClock.sleep(1000)
+                mCallback?.onSendMessageError("Disconnected while connecting, with status: $status", false)
+                return
             }
             close()
             isConnected = false

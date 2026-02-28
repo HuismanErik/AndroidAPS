@@ -222,6 +222,7 @@ class BLEComm @Inject internal constructor(
 
         override fun onScanFailed(errorCode: Int) {
             aapsLogger.debug(LTag.PUMPBTCOMM, "Scan FAILED!")
+            mCallback?.onSendMessageError("BLE Scan failed", false)
         }
     }
 
@@ -235,6 +236,8 @@ class BLEComm @Inject internal constructor(
             aapsLogger.debug(LTag.PUMPBTCOMM, "onServicesDiscovered")
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 findCharacteristic()
+            } else if (status == 133) {
+                mCallback?.onSendMessageError("BLE status 133", false)
             }
         }
 
@@ -372,6 +375,10 @@ class BLEComm @Inject internal constructor(
     @Synchronized
     private fun onConnectionStateChangeSynchronized(gatt: BluetoothGatt, status: Int, newState: Int) {
         aapsLogger.debug(LTag.PUMPBTCOMM, "onConnectionStateChange newState: $newState status: $status")
+        if (status == 133) {
+            mCallback?.onSendMessageError("BLE status 133", false)
+            return
+        }
         if (newState == BluetoothProfile.STATE_CONNECTED) {
             isConnected = true
             isConnecting = false

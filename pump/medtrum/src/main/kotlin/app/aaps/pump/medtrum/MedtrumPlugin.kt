@@ -225,12 +225,16 @@ class MedtrumPlugin @Inject constructor(
     }
 
     override fun isBusy(): Boolean {
-        // PUMP cannot handle commands when it is not initialized
-        return !isInitialized()
+        return false
     }
 
     override fun isConnected(): Boolean {
-        return medtrumService?.isConnected == true
+        // This is a workaround to prevent AAPS to trigger connects when we have no patch activated
+        return if (!isInitialized()) {
+            true
+        } else {
+            medtrumService?.isConnected == true
+        }
     }
 
     override fun isConnecting(): Boolean = medtrumService?.isConnecting == true

@@ -317,14 +317,17 @@ class MedtrumBleTransportImpl(
                 }
                 SystemClock.sleep(2000)
             }
-            gatt.close()
-            bluetoothGatt = null
-            uartRead = null
-            uartWrite = null
-            isConnected = false
-            isConnecting = false
-            medtrumCallback?.onDisconnected()
-            aapsLogger.debug(LTag.PUMPBTCOMM, "Device disconnected: ${gatt.device.name}")
+            // CLosing asynchronously to avoid deadlocks or silent failures in the Android BLE callback thread during disconnect.
+            handler.post {
+                gatt.close()
+                bluetoothGatt = null
+                uartRead = null
+                uartWrite = null
+                isConnected = false
+                isConnecting = false
+                medtrumCallback?.onDisconnected()
+                aapsLogger.debug(LTag.PUMPBTCOMM, "Device disconnected: ${gatt.device.name}")
+            }
         }
     }
 

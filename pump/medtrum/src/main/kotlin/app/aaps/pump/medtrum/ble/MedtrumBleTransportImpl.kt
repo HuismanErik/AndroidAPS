@@ -302,8 +302,15 @@ class MedtrumBleTransportImpl(
     }
 
     @Synchronized
-    private fun onConnectionStateChangeSynchronized(bleGatt: BluetoothGatt, status: Int, newState: Int) {
+    private fun onConnectionStateChangeSynchronized(callbackGatt: BluetoothGatt, status: Int, newState: Int) {
         aapsLogger.debug(LTag.PUMPBTCOMM, "onConnectionStateChange newState: $newState status: $status")
+        if (callbackGatt !== bluetoothGatt) {
+            // Late callback from a connection we have already given up. Close that one and keep
+            // the current connection untouched.
+            aapsLogger.warn(LTag.PUMPBTCOMM, "Callback from an old gatt, closing it")
+            callbackGatt.close()
+            return
+        }
         if (newState == BluetoothProfile.STATE_CONNECTED) {
             isConnected = true
             isConnecting = false
@@ -317,17 +324,13 @@ class MedtrumBleTransportImpl(
                 }
                 SystemClock.sleep(2000)
             }
-            // CLosing asynchronously to avoid deadlocks or silent failures in the Android BLE callback thread during disconnect.
-            handler.post {
-                gatt.close()
-                bluetoothGatt = null
-                uartRead = null
-                uartWrite = null
-                isConnected = false
-                isConnecting = false
-                medtrumCallback?.onDisconnected()
-                aapsLogger.debug(LTag.PUMPBTCOMM, "Device disconnected: ${bleGatt.device.name}")
-            }
+            // Our own BleGatt, not the BluetoothGatt from the callback: it closes the gatt, gives
+            // the Bluetooth stack time to settle and clears the cached gatt and characteristics.
+            gatt.close()
+            isConnected = false
+            isConnecting = false
+            medtrumCallback?.onDisconnected()
+            aapsLogger.debug(LTag.PUMPBTCOMM, "Device disconnected: ${callbackGatt.device.name}")
         }
     }
 
